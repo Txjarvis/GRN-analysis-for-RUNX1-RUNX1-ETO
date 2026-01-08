@@ -1,0 +1,177 @@
+
+```{r}
+library(edgeR)
+library(limma)
+library(biomaRt)
+library(pheatmap)
+library(org.Hs.eg.db)
+```
+
+
+```{r}
+cts <- read.table("expression_matrix.tsv",
+                  header=TRUE, row.names=1, sep="\t", check.names=FALSE)
+```
+
+```{r}
+new_names <- colnames(cts)                
+new_names <- basename(new_names)          
+new_names <- gsub(".sorted.bam", "", new_names) 
+colnames(cts) <- new_names    
+```
+
+
+```{r}
+group <- c("0Dox","0Dox","0Dox","5Dox","5Dox","5Dox")
+group <- factor(group, levels = c("0Dox","5Dox"))
+
+samples <- data.frame(condition = group,
+                      row.names = colnames(cts))
+
+```
+
+
+```{r}
+y <- DGEList(counts=cts, group=group)
+
+keep <- filterByExpr(y, group=group)
+y <- y[keep, , keep.lib.sizes=FALSE]
+```
+
+```{r}
+y <- calcNormFactors(y, method="TMM") 
+```
+
+```{r}
+pdf("MDS_plot.pdf")   # open file
+
+plotMDS(y, labels = colnames(y$counts))
+title("MDS plot")
+
+dev.off()  
+
+pdf("Library_sizes.pdf")
+
+barplot(y$samples$lib.size / 1e6,
+        names = colnames(y$counts),
+        las = 2,
+        ylab = "Library size (millions)",
+        main = "Library sizes")
+
+dev.off()
+```
+
+```{r}
+design <- model.matrix(~ group)
+
+pdf("voom_mean_variance.pdf")
+
+v <- voom(y, design, plot = TRUE)
+
+dev.off()
+```
+
+
+```{r}
+fit <- lmFit(v, design)
+fit <- eBayes(fit)
+results <- topTable(fit, coef="group5Dox", number=Inf)
+```
+
+
+```{r}
+mart <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+
+mapping <- getBM(
+  attributes = c("ensembl_gene_id", "hgnc_symbol"),
+  filters = "ensembl_gene_id",
+  values = rownames(cts),
+  mart = mart
+)
+
+head(mapping)
+```
+
+
+```{r}
+mapping_unique <- mapping[!duplicated(mapping$ensembl_gene_id), ]
+```
+
+
+```{r}
+results$ensembl_gene_id <- rownames(results)
+```
+
+```{r}
+results_annot <- merge(
+  results,
+  mapping_unique,
+  by = "ensembl_gene_id",
+  all.x = TRUE
+)
+```
+
+```{r}
+results_annot <- results_annot[match(rownames(results),
+                                     results_annot$ensembl_gene_id), ]
+```
+
+```{r}
+cols <- colnames(results_annot)
+new_order <- c("hgnc_symbol", setdiff(cols, "hgnc_symbol"))
+results_annot <- results_annot[, new_order]
+```
+
+```{r}
+write.csv(results_annot,
+          file = "DE_limma_voom_5Dox_vs_0Dox_annotated.csv",
+          row.names = FALSE)
+```
+
+
+```{r}
+ids <- c("ENSG00000173114", "ENSG00000140465", "ENSG00000188089",
+         "ENSG00000144834", "ENSG00000171246", "ENSG00000169245")
+
+symbols <- mapIds(
+  org.Hs.eg.db,
+  keys = ids,
+  keytype = "ENSEMBL",
+  column = "SYMBOL",
+  multiVals = "first"
+)
+
+symbols
+```
+
+
+```{r}
+results_annot$symbol <- NULL
+```
+
+
+```{r}
+expr_df <- subset(results_annot, !is.na(hgnc_symbol) & hgnc_symbol != "")
+
+E <- v$E
+E <- E[match(expr_df$ensembl_gene_id, rownames(E)), , drop=FALSE]
+
+rownames(E) <- expr_df$hgnc_symbol
+
+E_agg <- rowsum(E, group=rownames(E)) / as.vector(table(rownames(E)))
+
+expr_all <- rowMeans(E_agg)
+expr_0   <- rowMeans(E_agg[, group == "0Dox", drop=FALSE])
+expr_5   <- rowMeans(E_agg[, group == "5Dox", drop=FALSE])
+
+expr_all_df <- data.frame(gene_id=names(expr_all), expression=as.numeric(expr_all))
+expr_0_df   <- data.frame(gene_id=names(expr_0),   expression=as.numeric(expr_0))
+expr_5_df   <- data.frame(gene_id=names(expr_5),   expression=as.numeric(expr_5))
+
+write.table(expr_all_df, "expression_GRN.tsv", sep="\t", quote=FALSE, row.names=FALSE)
+write.table(expr_0_df,   "expression_GRN_0Dox.tsv", sep="\t", quote=FALSE, row.names=FALSE)
+write.table(expr_5_df,   "expression_GRN_5Dox.tsv", sep="\t", quote=FALSE, row.names=FALSE)
+
+
+```
+
