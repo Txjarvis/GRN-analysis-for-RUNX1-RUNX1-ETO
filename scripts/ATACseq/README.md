@@ -8,6 +8,9 @@ The resulting differentially accessible peaks (DAPs) are used for motif analysis
 
 ## Scripts overview
 
+### `FastQC.sh`
+Quality control on ATAC data.
+
 ### `align.sh`
 Aligns ATAC-seq reads to the human reference genome.
 
