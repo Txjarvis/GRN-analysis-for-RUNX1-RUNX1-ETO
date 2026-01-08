@@ -1,0 +1,113 @@
+```{r}
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+```
+
+
+```{r}
+
+outdir <- "plots"
+dir.create(outdir, showWarnings = FALSE)
+
+nodes_0 <- read_csv("/rds/projects/c/cazierj-msc-bioinf-dl/txj215/Project/GRN analysis/nodes_0Dox.csv", show_col_types = FALSE)
+nodes_5 <- read_csv("/rds/projects/c/cazierj-msc-bioinf-dl/txj215/Project/GRN analysis/nodes_5Dox.csv", show_col_types = FALSE)
+
+nodes_all <- bind_rows(
+  mutate(nodes_0, condition = "0Dox"),
+  mutate(nodes_5, condition = "5Dox")
+)
+
+```
+
+
+```{r}
+top_by <- function(df, metric, n = 30) {
+  df %>%
+    group_by(condition, name) %>%
+    summarise(value = max(.data[[metric]], na.rm = TRUE), .groups = "drop") %>%
+    group_by(condition) %>%
+    slice_max(value, n = n, with_ties = FALSE) %>%
+    ungroup()
+}
+
+```
+
+```{r}
+fam_summary <- function(df, metric) {
+  df %>%
+    filter(!is.na(`motif family`)) %>%
+    group_by(condition, `motif family`) %>%
+    summarise(mean_value = mean(.data[[metric]], na.rm = TRUE),
+              n = n(), .groups = "drop")
+}
+
+```
+
+
+```{r}
+p <- ggplot(nodes_all, aes(x = Indegree, fill = condition)) +
+  geom_histogram(bins = 50, alpha = 0.6, position = "identity") +
+  scale_x_continuous(trans = "log1p") +
+  theme_classic()
+
+ggsave(file.path(outdir, "indegree_histogram.png"), p, width = 6, height = 4, dpi = 300)
+
+```
+
+
+```{r}
+top_indeg <- top_by(nodes_all, "Indegree", n = 30)
+
+p <- ggplot(top_indeg, aes(x = reorder(name, value), y = value, fill = condition)) +
+  geom_col(show.legend = FALSE) +
+  coord_flip() +
+  facet_wrap(~condition, scales = "free_y") +
+  theme_classic() +
+  labs(x = NULL, y = "In-degree", title = "Top TFs by in-degree")
+
+ggsave(file.path(outdir, "top_indegree_TFs.png"), p, width = 8, height = 6, dpi = 300)
+
+```
+
+
+```{r}
+top_outdeg <- top_by(nodes_all, "Outdegree", n = 30)
+
+p <- ggplot(top_outdeg, aes(x = reorder(name, value), y = value, fill = condition)) +
+  geom_col(show.legend = FALSE) +
+  coord_flip() +
+  facet_wrap(~condition, scales = "free_y") +
+  theme_classic() +
+  labs(x = NULL, y = "Out-degree", title = "Top TF hubs (out-degree)")
+
+ggsave(file.path(outdir, "top_outdegree_TFs.png"), p, width = 8, height = 6, dpi = 300)
+
+```
+
+
+```{r}
+fam_out <- fam_summary(nodes_all, "Outdegree") %>%
+  filter(n >= 3)
+
+p <- ggplot(fam_out, aes(x = reorder(`motif family`, mean_value), y = mean_value, fill = condition)) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  theme_classic() +
+  labs(x = NULL, y = "Mean out-degree", title = "Mean TF out-degree by motif family (n≥3)")
+
+ggsave(file.path(outdir, "motif_family_mean_outdegree.png"), p, width = 8, height = 6, dpi = 300)
+
+```
+
+```{r}
+fam_betw <- fam_summary(nodes_all, "BetweennessCentrality") %>%
+  pivot_wider(names_from = condition, values_from = c(mean_value, n), names_sep = "_") %>%
+  mutate(delta = mean_value_5Dox - mean_value_0Dox) %>%
+  filter(!is.na(delta)) %>%
+  filter(n_0Dox >= 3 & n_5Dox >= 3)
+
+```
+
+
