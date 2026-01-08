@@ -1,0 +1,117 @@
+
+```{r}
+library(edgeR)
+library(limma)
+library(tidyverse)
+```
+
+```{r}
+counts <- read.delim("peak_counts.txt", check.names = FALSE)
+head(counts[, 1:4])
+```
+
+```{r}
+peaks0 <- read.table("0Dox_peaks_filt10.narrowPeak",
+                     sep = "\t", header = FALSE, stringsAsFactors = FALSE)
+
+peaks5 <- read.table("5Dox_peaks_filt10.narrowPeak",
+                     sep = "\t", header = FALSE, stringsAsFactors = FALSE)
+
+colnames(peaks0)[1:4] <- c("chr", "start", "end", "name")
+colnames(peaks5)[1:4] <- c("chr", "start", "end", "name")
+
+bed0 <- peaks0[, 1:4]
+bed5 <- peaks5[, 1:4]
+
+write.table(bed0, "0Dox_peaks_for_annot.bed",
+            sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
+
+write.table(bed5, "5Dox_peaks_for_annot.bed",
+            sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
+```
+
+
+```{r}
+counts$peak_id <- paste(counts$Chr, counts$Start, counts$End, sep=":")
+rownames(counts) <- counts$peak_id
+counts_mat <- counts %>% select(-Chr, -Start, -End, -peak_id)
+
+group <- factor(c("0Dox","0Dox","5Dox","5Dox"))
+design <- model.matrix(~0 + group)
+colnames(design) <- levels(group)
+```
+
+
+```{r}
+y <- DGEList(counts = counts_mat)
+keep <- filterByExpr(y, design = design)
+y <- y[keep, , keep.lib.sizes = FALSE]
+y <- calcNormFactors(y)
+```
+
+
+```{r}
+v <- voom(y, design, plot=FALSE)
+fit <- lmFit(v, design)
+contrast.matrix <- makeContrasts(Dox5_vs_0 = `5Dox` - `0Dox`, levels=design)
+fit2 <- eBayes(contrasts.fit(fit, contrast.matrix))
+
+```
+
+
+```{r}
+peak_id <- paste(counts[[1]], counts[[2]], counts[[3]], sep=":")
+counts_mat <- as.matrix(counts[, 4:ncol(counts), with=FALSE])
+rownames(counts_mat) <- peak_id
+```
+
+
+```{r}
+dim(counts_mat)
+colnames(counts_mat)
+```
+
+
+```{r}
+res <- topTable(fit2, coef="Dox5_vs_0", number=Inf, sort.by="P")
+
+coords <- do.call(rbind, strsplit(rownames(res), ":", fixed=TRUE))
+bed <- data.frame(chr=coords[,1], start=as.integer(coords[,2]), end=as.integer(coords[,3]))
+
+write.table(bed, "All_peaks_ranked.bed",
+            sep="\t", quote=FALSE, row.names=FALSE, col.names=FALSE)
+
+write.table(res, "All_peaks_ranked.tsv",
+            sep="\t", quote=FALSE, row.names=TRUE, col.names=NA)
+```
+
+#For De novo in HOMER
+
+```{r}
+peaks <- read.delim("DAPs_annotated_for_GRN.bed", header = FALSE)
+
+colnames(peaks)[7] <- "cond"  
+
+peaks_0 <- subset(peaks, cond == "0Dox")
+peaks_5 <- subset(peaks, cond == "5Dox")
+
+write.table(
+  peaks_0,
+  "DAPs_annotated_for_GRN_0Dox.bed",
+  sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE
+)
+
+write.table(
+  peaks_5,
+  "DAPs_annotated_for_GRN_5Dox.bed",
+  sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE
+)
+
+ann0 <- read.table("0Dox_peaks_annotated_full.bed",
+                   sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+
+ann5 <- read.table("5Dox_peaks_annotated_full.bed",
+                   sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+
+```
+
