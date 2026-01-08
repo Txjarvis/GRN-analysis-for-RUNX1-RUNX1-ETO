@@ -40,5 +40,4 @@ This repository contains the analysis pipeline and supporting scripts used to co
 8.  GRNs were analysed to assess network topology and regulatory differences between conditions.  
    Constructed GRNs were analysed to assess network topology and
    regulatory differences between conditions.
-
    (`Analysis/`)
